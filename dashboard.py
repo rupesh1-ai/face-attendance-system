@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import os
-import subprocess
-import sys
+import cv2
+import numpy as np
 from datetime import datetime
 
 # ---------------------------------
@@ -18,6 +18,15 @@ st.set_page_config(
 ATTENDANCE_FILE = "attendance.csv"
 FACES_FOLDER = "faces"
 
+os.makedirs(FACES_FOLDER, exist_ok=True)
+
+# ---------------------------------
+# Session State
+# ---------------------------------
+
+if "register_mode" not in st.session_state:
+    st.session_state.register_mode = False
+
 # ---------------------------------
 # Title
 # ---------------------------------
@@ -31,27 +40,28 @@ st.divider()
 # Count Registered Students
 # ---------------------------------
 
-registered_students = 0
-
-if os.path.exists(FACES_FOLDER):
-    registered_students = len([
-        folder
-        for folder in os.listdir(FACES_FOLDER)
-        if os.path.isdir(os.path.join(FACES_FOLDER, folder))
-    ])
+registered_students = len([
+    folder
+    for folder in os.listdir(FACES_FOLDER)
+    if os.path.isdir(os.path.join(FACES_FOLDER, folder))
+])
 
 # ---------------------------------
 # Load Attendance
 # ---------------------------------
 
 if os.path.exists(ATTENDANCE_FILE):
+
     try:
         attendance = pd.read_csv(ATTENDANCE_FILE)
+
     except Exception:
         attendance = pd.DataFrame(
             columns=["Name", "Date", "Time", "Status"]
         )
+
 else:
+
     attendance = pd.DataFrame(
         columns=["Name", "Date", "Time", "Status"]
     )
@@ -68,13 +78,12 @@ if not attendance.empty:
         attendance["Date"].astype(str) == today
     ]
 
-    # Prevent duplicate students affecting statistics
     today_unique = today_attendance.drop_duplicates(
         subset=["Name"]
     )
 
 else:
-    today_attendance = attendance
+
     today_unique = attendance
 
 # ---------------------------------
@@ -84,12 +93,14 @@ else:
 col1, col2, col3 = st.columns(3)
 
 with col1:
+
     st.metric(
         "👥 Registered Students",
         registered_students
     )
 
 with col2:
+
     st.metric(
         "✅ Present Today",
         len(today_unique)
@@ -98,8 +109,10 @@ with col2:
 with col3:
 
     if registered_students > 0:
+
         attendance_percentage = (
-            len(today_unique) / registered_students
+            len(today_unique) /
+            registered_students
         ) * 100
 
         attendance_percentage = min(
@@ -108,6 +121,7 @@ with col3:
         )
 
     else:
+
         attendance_percentage = 0
 
     st.metric(
@@ -126,7 +140,7 @@ st.subheader("🎯 Attendance Control")
 control1, control2 = st.columns(2)
 
 # ---------------------------------
-# START ATTENDANCE
+# Start Attendance
 # ---------------------------------
 
 with control1:
@@ -136,49 +150,14 @@ with control1:
         use_container_width=True
     ):
 
-        with st.spinner(
-            "Starting face recognition..."
-        ):
+        st.session_state.register_mode = False
 
-            try:
-
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "face_recognisation.py"
-                    ],
-                    capture_output=True,
-                    text=True
-                )
-
-                if result.returncode == 0:
-
-                    st.success(
-                        "✅ Attendance completed successfully!"
-                    )
-
-                    st.rerun()
-
-                else:
-
-                    st.error(
-                        "❌ Face recognition encountered an error."
-                    )
-
-                    if result.stderr:
-                        st.code(result.stderr)
-
-                    if result.stdout:
-                        st.code(result.stdout)
-
-            except Exception as e:
-
-                st.error(
-                    f"Unable to start attendance: {e}"
-                )
+        st.info(
+            "🎥 Online face attendance camera will be added next."
+        )
 
 # ---------------------------------
-# REGISTER STUDENT BUTTON
+# Register Student
 # ---------------------------------
 
 with control2:
@@ -187,101 +166,190 @@ with control2:
         "➕ Register Student",
         use_container_width=True
     ):
-        st.session_state["register_mode"] = True
+
+        st.session_state.register_mode = True
 
 # ---------------------------------
 # Student Registration
 # ---------------------------------
 
-if st.session_state.get(
-    "register_mode",
-    False
-):
+if st.session_state.register_mode:
 
     st.divider()
 
-    st.subheader(
-        "👤 Register New Student"
-    )
+    st.subheader("👤 Register New Student")
 
     student_name = st.text_input(
         "Student Name",
         placeholder="Enter student's full name"
     )
 
-    register_col1, register_col2 = st.columns(2)
+    # Browser camera
+    picture = st.camera_input(
+        "📸 Take Student Photo"
+    )
 
-    with register_col1:
+    if picture is not None:
 
-        if st.button(
-            "📸 Capture Face",
-            use_container_width=True
-        ):
+        st.image(
+            picture,
+            caption="Captured Photo",
+            width=350
+        )
 
-            if not student_name.strip():
+        save_col, cancel_col = st.columns(2)
 
-                st.warning(
-                    "⚠️ Please enter the student's name."
-                )
+        with save_col:
 
-            else:
+            if st.button(
+                "✅ Save & Register",
+                use_container_width=True
+            ):
 
-                with st.spinner(
-                    "Opening camera..."
-                ):
+                if not student_name.strip():
 
-                    try:
+                    st.warning(
+                        "⚠️ Please enter the student's name."
+                    )
 
-                        result = subprocess.run(
-                            [
-                                sys.executable,
-                                "register_face.py"
-                            ],
-                            input=student_name.strip() + "\n",
-                            capture_output=True,
-                            text=True
+                else:
+
+                    # Convert uploaded camera image
+                    file_bytes = np.asarray(
+                        bytearray(picture.read()),
+                        dtype=np.uint8
+                    )
+
+                    image = cv2.imdecode(
+                        file_bytes,
+                        cv2.IMREAD_COLOR
+                    )
+
+                    # Load Haar face detector
+                    face_detector = cv2.CascadeClassifier(
+                        cv2.data.haarcascades +
+                        "haarcascade_frontalface_default.xml"
+                    )
+
+                    gray = cv2.cvtColor(
+                        image,
+                        cv2.COLOR_BGR2GRAY
+                    )
+
+                    faces = face_detector.detectMultiScale(
+                        gray,
+                        scaleFactor=1.1,
+                        minNeighbors=5,
+                        minSize=(80, 80)
+                    )
+
+                    if len(faces) == 0:
+
+                        st.error(
+                            "❌ No face detected. Please take another photo."
                         )
 
-                        if result.returncode == 0:
+                    elif len(faces) > 1:
 
-                            st.success(
-                                f"✅ {student_name} registered successfully!"
+                        st.error(
+                            "❌ Multiple faces detected. Only one student should be visible."
+                        )
+
+                    else:
+
+                        x, y, w, h = faces[0]
+
+                        face = gray[
+                            y:y + h,
+                            x:x + w
+                        ]
+
+                        face = cv2.resize(
+                            face,
+                            (200, 200)
+                        )
+
+                        # Clean folder name
+                        safe_name = "".join(
+                            c for c in student_name.strip()
+                            if c.isalnum() or c in (" ", "-", "_")
+                        ).strip()
+
+                        if not safe_name:
+
+                            st.error(
+                                "❌ Please enter a valid student name."
                             )
-
-                            st.session_state[
-                                "register_mode"
-                            ] = False
-
-                            st.rerun()
 
                         else:
 
-                            st.error(
-                                "❌ Registration failed."
+                            student_folder = os.path.join(
+                                FACES_FOLDER,
+                                safe_name
                             )
 
-                            if result.stderr:
-                                st.code(result.stderr)
+                            os.makedirs(
+                                student_folder,
+                                exist_ok=True
+                            )
 
-                            if result.stdout:
-                                st.code(result.stdout)
+                            # Save captured face
+                            existing_images = [
+                                f for f in os.listdir(student_folder)
+                                if f.lower().endswith(
+                                    (".jpg", ".jpeg", ".png")
+                                )
+                            ]
 
-                    except Exception as e:
+                            image_number = (
+                                len(existing_images) + 1
+                            )
 
-                        st.error(
-                            f"Registration error: {e}"
-                        )
+                            face_path = os.path.join(
+                                student_folder,
+                                f"{image_number}.jpg"
+                            )
 
-    with register_col2:
+                            success = cv2.imwrite(
+                                face_path,
+                                face
+                            )
+
+                            if success:
+
+                                st.success(
+                                    f"✅ {safe_name} registered successfully!"
+                                )
+
+                                st.session_state.register_mode = False
+
+                                st.rerun()
+
+                            else:
+
+                                st.error(
+                                    "❌ Could not save the face image."
+                                )
+
+        with cancel_col:
+
+            if st.button(
+                "❌ Cancel Registration",
+                use_container_width=True
+            ):
+
+                st.session_state.register_mode = False
+
+                st.rerun()
+
+    else:
 
         if st.button(
             "❌ Cancel Registration",
             use_container_width=True
         ):
 
-            st.session_state[
-                "register_mode"
-            ] = False
+            st.session_state.register_mode = False
 
             st.rerun()
 
@@ -303,7 +371,7 @@ else:
 
     st.dataframe(
         today_unique,
-        width="stretch",
+        use_container_width=True,
         hide_index=True
     )
 
@@ -325,6 +393,6 @@ else:
 
     st.dataframe(
         attendance,
-        width="stretch",
+        use_container_width=True,
         hide_index=True
     )
