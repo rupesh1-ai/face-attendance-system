@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import cv2
 import numpy as np
 from datetime import datetime
 
@@ -49,21 +50,23 @@ registered_students = len([
 # Load Attendance
 # ---------------------------------
 
-if os.path.exists(ATTENDANCE_FILE):
+columns = ["Name", "Date", "Time", "Status"]
 
+if os.path.exists(ATTENDANCE_FILE):
     try:
         attendance = pd.read_csv(ATTENDANCE_FILE)
 
+        # Make sure required columns exist
+        for column in columns:
+            if column not in attendance.columns:
+                attendance[column] = ""
+
+        attendance = attendance[columns]
+
     except Exception:
-        attendance = pd.DataFrame(
-            columns=["Name", "Date", "Time", "Status"]
-        )
-
+        attendance = pd.DataFrame(columns=columns)
 else:
-
-    attendance = pd.DataFrame(
-        columns=["Name", "Date", "Time", "Status"]
-    )
+    attendance = pd.DataFrame(columns=columns)
 
 # ---------------------------------
 # Today's Attendance
@@ -82,7 +85,6 @@ if not attendance.empty:
     )
 
 else:
-
     today_unique = attendance
 
 # ---------------------------------
@@ -92,14 +94,12 @@ else:
 col1, col2, col3 = st.columns(3)
 
 with col1:
-
     st.metric(
         "👥 Registered Students",
         registered_students
     )
 
 with col2:
-
     st.metric(
         "✅ Present Today",
         len(today_unique)
@@ -108,10 +108,8 @@ with col2:
 with col3:
 
     if registered_students > 0:
-
         attendance_percentage = (
-            len(today_unique) /
-            registered_students
+            len(today_unique) / registered_students
         ) * 100
 
         attendance_percentage = min(
@@ -120,7 +118,6 @@ with col3:
         )
 
     else:
-
         attendance_percentage = 0
 
     st.metric(
@@ -138,26 +135,17 @@ st.subheader("🎯 Attendance Control")
 
 control1, control2 = st.columns(2)
 
-# ---------------------------------
-# Start Attendance
-# ---------------------------------
-
 with control1:
 
     if st.button(
         "🎥 Start Attendance",
         use_container_width=True
     ):
-
         st.session_state.register_mode = False
 
         st.info(
-            "🎥 Online face attendance camera will be added next."
+            "🎥 Online face recognition will be added next."
         )
-
-# ---------------------------------
-# Register Student
-# ---------------------------------
 
 with control2:
 
@@ -165,7 +153,6 @@ with control2:
         "➕ Register Student",
         use_container_width=True
     ):
-
         st.session_state.register_mode = True
 
 # ---------------------------------
@@ -175,7 +162,6 @@ with control2:
 if st.session_state.register_mode:
 
     st.divider()
-
     st.subheader("👤 Register New Student")
 
     student_name = st.text_input(
@@ -183,10 +169,13 @@ if st.session_state.register_mode:
         placeholder="Enter student's full name"
     )
 
-    # Browser camera
     picture = st.camera_input(
         "📸 Take Student Photo"
     )
+
+    # ---------------------------------
+    # Photo Captured
+    # ---------------------------------
 
     if picture is not None:
 
@@ -205,7 +194,9 @@ if st.session_state.register_mode:
                 use_container_width=True
             ):
 
-                if not student_name.strip():
+                name = student_name.strip()
+
+                if not name:
 
                     st.warning(
                         "⚠️ Please enter the student's name."
@@ -213,122 +204,161 @@ if st.session_state.register_mode:
 
                 else:
 
-                    # Convert uploaded camera image
-                    file_bytes = np.asarray(
-                        bytearray(picture.read()),
-                        dtype=np.uint8
-                    )
+                    # Clean student name
+                    safe_name = "".join(
+                        c for c in name
+                        if c.isalnum() or c in (" ", "-", "_")
+                    ).strip()
 
-                    image = cv2.imdecode(
-                        file_bytes,
-                        cv2.IMREAD_COLOR
-                    )
-
-                    # Load Haar face detector
-                    face_detector = cv2.CascadeClassifier(
-                        cv2.data.haarcascades +
-                        "haarcascade_frontalface_default.xml"
-                    )
-
-                    gray = cv2.cvtColor(
-                        image,
-                        cv2.COLOR_BGR2GRAY
-                    )
-
-                    faces = face_detector.detectMultiScale(
-                        gray,
-                        scaleFactor=1.1,
-                        minNeighbors=5,
-                        minSize=(80, 80)
-                    )
-
-                    if len(faces) == 0:
+                    if not safe_name:
 
                         st.error(
-                            "❌ No face detected. Please take another photo."
-                        )
-
-                    elif len(faces) > 1:
-
-                        st.error(
-                            "❌ Multiple faces detected. Only one student should be visible."
+                            "❌ Please enter a valid student name."
                         )
 
                     else:
 
-                        x, y, w, h = faces[0]
-
-                        face = gray[
-                            y:y + h,
-                            x:x + w
-                        ]
-
-                        face = cv2.resize(
-                            face,
-                            (200, 200)
+                        # Convert camera image to OpenCV image
+                        file_bytes = np.frombuffer(
+                            picture.getvalue(),
+                            dtype=np.uint8
                         )
 
-                        # Clean folder name
-                        safe_name = "".join(
-                            c for c in student_name.strip()
-                            if c.isalnum() or c in (" ", "-", "_")
-                        ).strip()
+                        image = cv2.imdecode(
+                            file_bytes,
+                            cv2.IMREAD_COLOR
+                        )
 
-                        if not safe_name:
+                        if image is None:
 
                             st.error(
-                                "❌ Please enter a valid student name."
+                                "❌ Could not read the captured image."
                             )
 
                         else:
 
-                            student_folder = os.path.join(
-                                FACES_FOLDER,
-                                safe_name
+                            # Load OpenCV face detector
+                            cascade_path = (
+                                cv2.data.haarcascades +
+                                "haarcascade_frontalface_default.xml"
                             )
 
-                            os.makedirs(
-                                student_folder,
-                                exist_ok=True
+                            face_detector = cv2.CascadeClassifier(
+                                cascade_path
                             )
 
-                            # Save captured face
-                            existing_images = [
-                                f for f in os.listdir(student_folder)
-                                if f.lower().endswith(
-                                    (".jpg", ".jpeg", ".png")
+                            if face_detector.empty():
+
+                                st.error(
+                                    "❌ Face detector could not be loaded."
                                 )
-                            ]
-
-                            image_number = (
-                                len(existing_images) + 1
-                            )
-
-                            face_path = os.path.join(
-                                student_folder,
-                                f"{image_number}.jpg"
-                            )
-
-                            success = cv2.imwrite(
-                                face_path,
-                                face
-                            )
-
-                            if success:
-
-                                st.success(
-                                    f"✅ {safe_name} registered successfully!"
-                                )
-
-                                st.session_state.register_mode = False
-
-                                st.rerun()
 
                             else:
 
-                                st.error(
-                                    "❌ Could not save the face image."
+                                gray = cv2.cvtColor(
+                                    image,
+                                    cv2.COLOR_BGR2GRAY
                                 )
+
+                                faces = face_detector.detectMultiScale(
+                                    gray,
+                                    scaleFactor=1.1,
+                                    minNeighbors=5,
+                                    minSize=(80, 80)
+                                )
+
+                                # -------------------------
+                                # Face Validation
+                                # -------------------------
+
+                                if len(faces) == 0:
+
+                                    st.error(
+                                        "❌ No face detected. "
+                                        "Take another photo with your "
+                                        "face clearly visible."
+                                    )
+
+                                elif len(faces) > 1:
+
+                                    st.error(
+                                        "❌ Multiple faces detected. "
+                                        "Only one student should be visible."
+                                    )
+
+                                else:
+
+                                    x, y, w, h = faces[0]
+
+                                    face = gray[
+                                        y:y + h,
+                                        x:x + w
+                                    ]
+
+                                    face = cv2.resize(
+                                        face,
+                                        (200, 200)
+                                    )
+
+                                    # -------------------------
+                                    # Student Folder
+                                    # -------------------------
+
+                                    student_folder = os.path.join(
+                                        FACES_FOLDER,
+                                        safe_name
+                                    )
+
+                                    os.makedirs(
+                                        student_folder,
+                                        exist_ok=True
+                                    )
+
+                                    existing_images = [
+                                        file
+                                        for file in os.listdir(
+                                            student_folder
+                                        )
+                                        if file.lower().endswith(
+                                            (
+                                                ".jpg",
+                                                ".jpeg",
+                                                ".png"
+                                            )
+                                        )
+                                    ]
+
+                                    image_number = (
+                                        len(existing_images) + 1
+                                    )
+
+                                    face_path = os.path.join(
+                                        student_folder,
+                                        f"{image_number}.jpg"
+                                    )
+
+                                    success = cv2.imwrite(
+                                        face_path,
+                                        face
+                                    )
+
+                                    if success:
+
+                                        st.success(
+                                            f"✅ {safe_name} "
+                                            "registered successfully!"
+                                        )
+
+                                        st.session_state.register_mode = False
+
+                                        st.rerun()
+
+                                    else:
+
+                                        st.error(
+                                            "❌ Could not save "
+                                            "the face image."
+                                        )
 
         with cancel_col:
 
@@ -336,10 +366,12 @@ if st.session_state.register_mode:
                 "❌ Cancel Registration",
                 use_container_width=True
             ):
-
                 st.session_state.register_mode = False
-
                 st.rerun()
+
+    # ---------------------------------
+    # No Photo Yet
+    # ---------------------------------
 
     else:
 
@@ -347,9 +379,7 @@ if st.session_state.register_mode:
             "❌ Cancel Registration",
             use_container_width=True
         ):
-
             st.session_state.register_mode = False
-
             st.rerun()
 
 st.divider()
