@@ -3,9 +3,9 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# ---------------------------------
-# Page Configuration
-# ---------------------------------
+# ==========================================
+# CONFIGURATION
+# ==========================================
 
 st.set_page_config(
     page_title="Attendify Vision",
@@ -18,9 +18,9 @@ FACES_FOLDER = "faces"
 
 os.makedirs(FACES_FOLDER, exist_ok=True)
 
-# ---------------------------------
-# Session State
-# ---------------------------------
+# ==========================================
+# SESSION STATE
+# ==========================================
 
 if "register_mode" not in st.session_state:
     st.session_state.register_mode = False
@@ -28,52 +28,108 @@ if "register_mode" not in st.session_state:
 if "attendance_mode" not in st.session_state:
     st.session_state.attendance_mode = False
 
-# ---------------------------------
-# Title
-# ---------------------------------
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
 
-st.title("🎓 Face Attendance System")
-st.caption("AI-powered student attendance system")
+def get_registered_students():
+    students = []
 
-st.divider()
+    if os.path.exists(FACES_FOLDER):
+        for item in os.listdir(FACES_FOLDER):
 
-# ---------------------------------
-# Registered Students
-# ---------------------------------
+            path = os.path.join(FACES_FOLDER, item)
 
-registered_students = len([
-    folder
-    for folder in os.listdir(FACES_FOLDER)
-    if os.path.isdir(os.path.join(FACES_FOLDER, folder))
-])
+            if os.path.isdir(path):
+                students.append(item)
 
-# ---------------------------------
-# Load Attendance
-# ---------------------------------
+    return sorted(students)
 
-columns = ["Name", "Date", "Time", "Status"]
 
-if os.path.exists(ATTENDANCE_FILE):
+def load_attendance():
+
+    columns = [
+        "Name",
+        "Date",
+        "Time",
+        "Status"
+    ]
+
+    if not os.path.exists(ATTENDANCE_FILE):
+        return pd.DataFrame(columns=columns)
+
     try:
-        attendance = pd.read_csv(ATTENDANCE_FILE)
+        df = pd.read_csv(ATTENDANCE_FILE)
 
         for column in columns:
-            if column not in attendance.columns:
-                attendance[column] = ""
+            if column not in df.columns:
+                df[column] = ""
 
-        attendance = attendance[columns]
+        return df[columns]
 
     except Exception:
-        attendance = pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=columns)
 
-else:
-    attendance = pd.DataFrame(columns=columns)
 
-# ---------------------------------
-# Today's Attendance
-# ---------------------------------
+def mark_attendance(student_name):
 
-today = datetime.now().strftime("%d-%m-%Y")
+    attendance = load_attendance()
+
+    now = datetime.now()
+
+    date = now.strftime("%d-%m-%Y")
+    time = now.strftime("%I:%M:%S %p")
+
+    # Check if student already attended today
+
+    if not attendance.empty:
+
+        duplicate = attendance[
+            (attendance["Name"].astype(str) == student_name)
+            &
+            (attendance["Date"].astype(str) == date)
+        ]
+
+        if not duplicate.empty:
+            return False, "already_marked"
+
+    new_record = pd.DataFrame(
+        [{
+            "Name": student_name,
+            "Date": date,
+            "Time": time,
+            "Status": "Present"
+        }]
+    )
+
+    attendance = pd.concat(
+        [attendance, new_record],
+        ignore_index=True
+    )
+
+    attendance.to_csv(
+        ATTENDANCE_FILE,
+        index=False
+    )
+
+    return True, "success"
+
+
+# ==========================================
+# DATA
+# ==========================================
+
+registered_student_names = get_registered_students()
+
+registered_students = len(
+    registered_student_names
+)
+
+attendance = load_attendance()
+
+today = datetime.now().strftime(
+    "%d-%m-%Y"
+)
 
 if not attendance.empty:
 
@@ -86,21 +142,38 @@ if not attendance.empty:
     )
 
 else:
+
     today_unique = attendance
 
-# ---------------------------------
-# Dashboard Statistics
-# ---------------------------------
+
+# ==========================================
+# HEADER
+# ==========================================
+
+st.title("🎓 Attendify Vision")
+
+st.caption(
+    "Smart Student Attendance Management System"
+)
+
+st.divider()
+
+
+# ==========================================
+# DASHBOARD
+# ==========================================
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
+
     st.metric(
         "👥 Registered Students",
         registered_students
     )
 
 with col2:
+
     st.metric(
         "✅ Present Today",
         len(today_unique)
@@ -109,42 +182,55 @@ with col2:
 with col3:
 
     if registered_students > 0:
-        attendance_percentage = (
-            len(today_unique) / registered_students
+
+        percentage = (
+            len(today_unique)
+            /
+            registered_students
         ) * 100
 
-        attendance_percentage = min(
-            attendance_percentage,
+        percentage = min(
+            percentage,
             100
         )
 
     else:
-        attendance_percentage = 0
+
+        percentage = 0
 
     st.metric(
         "📊 Attendance Rate",
-        f"{attendance_percentage:.0f}%"
+        f"{percentage:.0f}%"
     )
+
 
 st.divider()
 
-# ---------------------------------
-# Attendance Control
-# ---------------------------------
 
-st.subheader("🎯 Attendance Control")
+# ==========================================
+# ATTENDANCE CONTROL
+# ==========================================
+
+st.subheader(
+    "🎯 Attendance Control"
+)
 
 control1, control2 = st.columns(2)
+
 
 with control1:
 
     if st.button(
         "🎥 Start Attendance",
-        use_container_width=True
+        use_container_width=True,
+        type="primary"
     ):
+
         st.session_state.attendance_mode = True
         st.session_state.register_mode = False
+
         st.rerun()
+
 
 with control2:
 
@@ -152,39 +238,46 @@ with control2:
         "➕ Register Student",
         use_container_width=True
     ):
+
         st.session_state.register_mode = True
         st.session_state.attendance_mode = False
+
         st.rerun()
 
-# ---------------------------------
+
+# ==========================================
 # REGISTER STUDENT
-# ---------------------------------
+# ==========================================
 
 if st.session_state.register_mode:
 
     st.divider()
 
-    st.subheader("👤 Register New Student")
+    st.subheader(
+        "👤 Register New Student"
+    )
 
     student_name = st.text_input(
         "Student Name",
         placeholder="Enter student's full name"
     )
 
-    picture = st.camera_input(
+    registration_photo = st.camera_input(
         "📸 Take Student Photo",
         key="registration_camera"
     )
 
-    if picture is not None:
+
+    if registration_photo is not None:
 
         st.image(
-            picture,
+            registration_photo,
             caption="Captured Photo",
             width=350
         )
 
         save_col, cancel_col = st.columns(2)
+
 
         with save_col:
 
@@ -198,20 +291,27 @@ if st.session_state.register_mode:
                 if not name:
 
                     st.warning(
-                        "⚠️ Please enter the student's name."
+                        "⚠️ Enter the student's name first."
                     )
 
                 else:
 
                     safe_name = "".join(
-                        c for c in name
-                        if c.isalnum() or c in (" ", "-", "_")
+                        character
+                        for character in name
+                        if character.isalnum()
+                        or character in (
+                            " ",
+                            "-",
+                            "_"
+                        )
                     ).strip()
+
 
                     if not safe_name:
 
                         st.error(
-                            "❌ Please enter a valid student name."
+                            "❌ Invalid student name."
                         )
 
                     else:
@@ -226,27 +326,49 @@ if st.session_state.register_mode:
                             exist_ok=True
                         )
 
+
                         existing_images = [
+
                             file
-                            for file in os.listdir(student_folder)
+
+                            for file
+                            in os.listdir(
+                                student_folder
+                            )
+
                             if file.lower().endswith(
-                                (".jpg", ".jpeg", ".png")
+                                (
+                                    ".jpg",
+                                    ".jpeg",
+                                    ".png"
+                                )
                             )
                         ]
 
-                        image_number = len(existing_images) + 1
 
-                        face_path = os.path.join(
+                        image_number = (
+                            len(existing_images)
+                            + 1
+                        )
+
+
+                        image_path = os.path.join(
                             student_folder,
                             f"{image_number}.jpg"
                         )
 
+
                         try:
 
-                            with open(face_path, "wb") as file:
+                            with open(
+                                image_path,
+                                "wb"
+                            ) as file:
+
                                 file.write(
-                                    picture.getvalue()
+                                    registration_photo.getvalue()
                                 )
+
 
                             st.success(
                                 f"✅ {safe_name} registered successfully!"
@@ -256,78 +378,156 @@ if st.session_state.register_mode:
 
                             st.rerun()
 
-                        except Exception as e:
+
+                        except Exception as error:
 
                             st.error(
-                                f"❌ Could not save photo: {e}"
+                                f"❌ Registration failed: {error}"
                             )
+
 
         with cancel_col:
 
             if st.button(
-                "❌ Cancel",
+                "❌ Cancel Registration",
                 use_container_width=True
             ):
 
                 st.session_state.register_mode = False
+
                 st.rerun()
 
-    else:
 
-        if st.button("❌ Cancel Registration"):
-
-            st.session_state.register_mode = False
-            st.rerun()
-
-# ---------------------------------
-# ATTENDANCE CAMERA
-# ---------------------------------
+# ==========================================
+# ATTENDANCE MODE
+# ==========================================
 
 if st.session_state.attendance_mode:
 
     st.divider()
 
-    st.subheader("🎥 Take Attendance")
-
-    st.info(
-        "Position one student clearly in front of the camera."
+    st.subheader(
+        "🎥 Take Attendance"
     )
 
-    attendance_photo = st.camera_input(
-        "📷 Capture Student",
-        key="attendance_camera"
-    )
 
-    if attendance_photo is not None:
+    if registered_students == 0:
 
-        st.image(
-            attendance_photo,
-            caption="Attendance Photo",
-            width=350
-        )
-
-        st.success(
-            "📸 Photo captured successfully."
+        st.warning(
+            "⚠️ No students are registered yet."
         )
 
         st.info(
-            "Face recognition will be connected after we confirm the camera system works correctly."
+            "Register at least one student before taking attendance."
         )
+
+
+    else:
+
+        st.info(
+            "Position one student clearly in front of the camera."
+        )
+
+
+        attendance_photo = st.camera_input(
+            "📷 Capture Student",
+            key="attendance_camera"
+        )
+
+
+        if attendance_photo is not None:
+
+            st.image(
+                attendance_photo,
+                caption="Attendance Photo",
+                width=350
+            )
+
+            st.success(
+                "📸 Photo captured successfully."
+            )
+
+
+            st.write(
+                "### Select Student"
+            )
+
+
+            selected_student = st.selectbox(
+                "Registered Student",
+                registered_student_names
+            )
+
+
+            if st.button(
+                "✅ Mark Attendance",
+                use_container_width=True,
+                type="primary"
+            ):
+
+                success, status = mark_attendance(
+                    selected_student
+                )
+
+
+                if success:
+
+                    st.success(
+                        f"✅ Attendance marked for {selected_student}!"
+                    )
+
+                    st.balloons()
+
+                    st.session_state.attendance_mode = False
+
+                    st.rerun()
+
+
+                elif status == "already_marked":
+
+                    st.warning(
+                        f"⚠️ {selected_student} is already marked present today."
+                    )
+
 
     if st.button(
         "❌ Close Attendance Camera"
     ):
 
         st.session_state.attendance_mode = False
+
         st.rerun()
 
-# ---------------------------------
-# Today's Attendance
-# ---------------------------------
+
+# ==========================================
+# TODAY'S ATTENDANCE
+# ==========================================
 
 st.divider()
 
-st.subheader("📅 Today's Attendance")
+st.subheader(
+    "📅 Today's Attendance"
+)
+
+# Reload because attendance may have changed
+
+attendance = load_attendance()
+
+if not attendance.empty:
+
+    today_attendance = attendance[
+        attendance["Date"].astype(str)
+        == today
+    ]
+
+    today_unique = today_attendance.drop_duplicates(
+        subset=["Name"]
+    )
+
+else:
+
+    today_unique = attendance
+
 
 if today_unique.empty:
 
@@ -343,13 +543,19 @@ else:
         hide_index=True
     )
 
-# ---------------------------------
-# Attendance History
-# ---------------------------------
+
+# ==========================================
+# ATTENDANCE HISTORY
+# ==========================================
 
 st.divider()
 
-st.subheader("📚 Attendance History")
+st.subheader(
+    "📚 Attendance History"
+)
+
+attendance = load_attendance()
+
 
 if attendance.empty:
 
@@ -360,7 +566,7 @@ if attendance.empty:
 else:
 
     st.dataframe(
-        attendance,
+        attendance.iloc[::-1],
         use_container_width=True,
         hide_index=True
     )
