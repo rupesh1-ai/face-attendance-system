@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Face data / generated model
+faces/
+face_model.yml
+labels.txt
+
+# Attendance records
+attendance.csv
